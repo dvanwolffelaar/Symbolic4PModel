@@ -225,18 +225,18 @@ function construct_sys(s::KPS4Symbolic)
     # State variables
     @variables pos(t)[1:n, 1:3] = POS0
     @variables vel(t)[1:n, 1:3] = VEL0
-    @variables acc(t)[1:n, 1:3] = ACC0
+    @variables acc(t)[1:n, 1:3]
     @variables l_tether(t) = L_TETHER0
     @variables v_tether(t) = V_TETHER0
-    @variables a_tether(t) = A_TETHER0
+    @variables a_tether(t)
 
     # Input variables
-    @variables speed_wind_gnd(t) = SPEED_WIND_GND0 [input = true]
-    @variables downwind_direction(t) = DOWNWIND_DIR0 [input = true]
-    @variables set_speed(t) = 0 [input = true]
-    @variables set_torque(t) = 0 [input = true]
-    @variables rel_depower(t) = s.set.depower_zero / 100 [input = true]
-    @variables rel_steering(t) = 0 [input = true]
+    @variables speed_wind_gnd(t) [input = true]
+    @variables downwind_direction(t) [input = true]
+    @variables set_speed(t) [input = true]
+    @variables set_torque(t) [input = true]
+    @variables rel_depower(t) [input = true]
+    @variables rel_steering(t) [input = true]
 
     # Intermediary variables
     L_0 = l_tether / s.set.segments
@@ -249,7 +249,7 @@ function construct_sys(s::KPS4Symbolic)
 
     m = length(springs)
     @variables sp_height(t)[1:m]
-    @variables sp_length(t)[1:m] = L_SPRINGS0
+    @variables sp_length(t)[1:m]
     @variables sp_uv_dir(t)[1:m, 1:3]
 
     @variables sp_speed(t)[1:m]
@@ -278,7 +278,7 @@ function construct_sys(s::KPS4Symbolic)
     @variables kite_perp_app_vel(t)[1:n_k, 1:3]
 
     @variables kite_clipped_wind_angle(t)[1:n_k]
-    @variables kite_angle_of_attack(t)[1:n_k] = AOA0
+    @variables kite_angle_of_attack(t)[1:n_k]
 
     @variables kite_cl(t)[1:n_k], kite_cd(t)[1:n_k]
 
@@ -544,10 +544,25 @@ function construct_sys(s::KPS4Symbolic)
         pos_kite[3] ~ pos_kite_z_tim,
     ]
 
+    trimming_conditions = vcat(
+        [D.(pos[i, j]) => VEL0[i, j] for i in 2:n for j in 1:3],
+        [D.(vel[i, j]) => ACC0[i, j] for i in 2:n for j in 1:3],
+        D.(l_tether) => V_TETHER0,
+        D.(v_tether) => A_TETHER0,
+    )
+
+    initial_guesses = [
+        kite_angle_of_attack[2] => s.set.alpha_zero,
+        kite_angle_of_attack[3] => s.set.alpha_ztip,
+        kite_angle_of_attack[4] => s.set.alpha_ztip,
+        rel_depower => s.set.depower / 100,
+        rel_steering => 0
+    ]
+
     @named trimming_sys = ODESystem(vcat(eq_total, eq_trimming), t)
-    @time "Reducing the trimming model" simple_trimming_sys = structural_simplify(trimming_sys)
-    @time "Setting up the trimming problem" trimming_prob = ODEProblem(simple_trimming_sys, [D.(pos) => VEL0, D.(vel) => ACC0], (0, 10))
-    @time "Solving the trimming problem" trimming_sol = solve(trimming_prob, Rodas4P(autodiff=false))
+    @time "Reducing the trimming model" simple_trimming_sys = structural_simplify(trimming_sys, fully_determined=false)
+    @time "Setting up the trimming problem" trimming_prob = ModelingToolkit.InitializationProblem(simple_trimming_sys, 0, trimming_conditions, guesses=initial_guesses)
+    @time "Solving the trimming problem" trimming_sol = solve(trimming_prob, abstol=1e-16)
 
     sys = ODESystem(eq_total, t)
     @time "Reducing the model" reduced_sys = structural_simplify(sys, fully_determined=false)

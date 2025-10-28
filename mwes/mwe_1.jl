@@ -38,7 +38,7 @@ eq_total = [
     D(y) ~ (-y) / r,
     D(z) ~ (-z + v) / ρ,
     r ~ x^2 + y^2,
-    ρ ~ calc_aero_coeff(spline, z)
+    ρ ~ calc_aero_coeff(spline, spline_d, z)
 ]
 
 @parameters begin
@@ -51,10 +51,13 @@ eq_trimming = [
     ρ ~ rho_trim
 ]
 
+trimming_conditions = [D.(x) => 0, D.(y) => 0, D.(z) => 0]
+initial_guesses = [x => 1, y => 0, z => 3, u => 2, v => 1]
+
 @named trimming_sys = ODESystem(vcat(eq_total, eq_trimming), t)
-@time simple_trimmings_sys = structural_simplify(trimming_sys)
-@time trimming_ode_prob = ODEProblem(simple_trimmings_sys, [D.(x) => 0, D.(y) => 0, D.(z) => 0], (0, 10), guesses=[x => 1, y => 0, z => 3, u => 2, v => 1])
-@time trimming_sol = solve(trimming_ode_prob, Rodas4P(autodiff=false), abstol=1e-16)
+@time simple_trimmings_sys = structural_simplify(trimming_sys, fully_determined=false)
+@time trimming_prob = ModelingToolkit.InitializationProblem(simple_trimmings_sys, 0, trimming_conditions, guesses=initial_guesses)
+@time trimming_sol = solve(trimming_prob, abstol=1e-16)
 
 inputs = ModelingToolkit.inputs(trimming_sys)
 trimming_sol[inputs]
